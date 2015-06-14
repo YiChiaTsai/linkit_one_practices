@@ -1,10 +1,12 @@
 #include <LWiFi.h> 
 #include <LWiFiClient.h> 
+
 #define BAUDRATE 19200
 
-#define WIFI_NAME "__SSID__"
-#define WIFI_PASSWD "__PASSWORD__"
+#define WIFI_NAME "N10U"
+#define WIFI_PASSWD "yn0933!@"
 #define URL "www.mediatek.com" 
+
 LWiFiClient cli;
 
 void setup(){

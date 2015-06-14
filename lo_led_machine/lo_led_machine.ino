@@ -1,243 +1,339 @@
-#include "settings.h"
+#define WIFI_AP "N10U"
+#define WIFI_PASSWORD "yn0933!@"
+#define WIFI_AUTH LWIFI_WPA // LWIFI_OPEN, LWIFI_WPA, LWIFI_WEP
+
+#define MCS_SITE_URL "api.mediatek.com" // MediaTek Cloud Sandbox
+#define MCS_SITE_PORT 80
+#define DEVICEID "DvapQx4H" // 
+#define DEVICEKEY "cA6hNMBBEu6N5ehS" // 
+
+#define LED_ID "LED" //
+#define LED_CONTROL_ID "LED_CONTROL" //
+#define AGE_ID "AGE" //
+#define TEMP_ID "TEMP" //
+
 #include <stdarg.h>
 #include <LWiFi.h>
 #include <LWiFiClient.h>
 #include <HttpClient.h>
+#include <aJSON.h>
 #include <LDateTime.h>
 
 #define BAUDRATE 115200
 #define LED_PIN 13
 
-char ip[21]; // example: 123.456.789.123           
-char port[5]; // example: 80, 544, 1023
-int portnum;
+// 2^32 = 4 294 967 296
+// timestamp of 2015.05.06 16:20:00 is about 1 430 900 112 156
+// which is the microseconds from 1970.01.01 00:00:00
 
-String tcpdata = String(DEVICEID) + "," + String(DEVICEKEY) + ",0";
+  /*
+  // note: 2^32= 4 294 967 296 is smaller than 1 429 080 238 462 (unix time in milliseconds)
+  unsigned int t;
+  LDateTime.getRtc(&t); // 1429080238462,  3468826296
+  t *= 1000;
+  aJson.addNumberToObject(sd0, "timestamp", (double) t);*/
+  
 
-LWiFiClient c; // regularly retrieve info from MCS
+char g_ip[16]; // example: 123.456.789.123           
+int g_port;
+LWiFiClient g_client;
 
-#define PF_BUF_SIZE 128 // limited to 128 chars
+#define PF_BUF_SIZE 256 // limited to 128 chars
 void pf(const char *fmt, ...){
-    char tmp[PF_BUF_SIZE];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(tmp, PF_BUF_SIZE, fmt, args);
-    va_end(args);
-    Serial.print(tmp);
+  char tmp[PF_BUF_SIZE];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(tmp, PF_BUF_SIZE, fmt, args);
+  va_end(args);
+  Serial.print(tmp);
 }
 
 void setup(){
   Serial.begin(BAUDRATE);
   pinMode(LED_PIN, OUTPUT);
-  LWiFi.begin();
-  
-  while(!Serial) // comment out when Serial is not present, ie. 
-      delay(1000); // when run without connecting to PC
-
-  Serial.println("Connecting to WiFi AP");
-  while(LWiFi.connect(WIFI_AP, LWiFiLoginInfo(WIFI_AUTH, WIFI_PASSWORD)) <= 0){
-    delay(1000);
-  }
-  
-  getconnectInfo();
-  connectTCP();
 }
 
-//calling RESTful API to get TCP socket connection
-void getconnectInfo(){
-  LWiFiClient c2;
-  HttpClient http(c2);
-    
-  pf("getconnectInfo: client trying to connect\n");
-  while(!c2.connect(SITE_URL, SITE_PORT)){
-    pf("getconnectInfo: reconnecting...\n");
-    delay(1000);
-  }
-  delay(100);
-
-  c2.print("GET /mcs/v2/devices/");
-  c2.print(DEVICEID);
-  c2.println("/connections.csv HTTP/1.1");
-  c2.print("Host: ");
-  c2.println(SITE_URL);
-  c2.print("deviceKey: ");
-  c2.println(DEVICEKEY);
-  c2.println("Connection: close");
-  c2.println();
-  delay(500);
-
-  int errorcount = 0;
-  while(!c2.available()){
-    pf("waiting HTTP response, errorcount: %d\n", errorcount);
-    errorcount++;
-    if(errorcount > 10){
-      pf("getconnectInfo tried too many times, aborted");
-      c2.stop();
-      return;
-    }
-    delay(100);
-  }
+boolean led_upload(const char *id, int v, boolean is_str){
+  pf("led_upload, v is %d\n", v);
   
-  int err = http.skipResponseHeaders();
-  pf("Content length is: %d\n\n", http.contentLength());
+  LWiFiClient cli;  
+  HttpClient hcli(cli);
+  int err = 0;
+  boolean flag = false;
   
-  char connection_info[21];
-  int idx = 0;
-  int separater = 0;
-  while(c2){
-    char v = c2.read();
-    if(v != -1){
-      connection_info[idx] = v;
-      if(v == ',')
-        separater = idx;
-      idx++;    
-    }
-    else{
-      Serial.println("no more content, disconnect");
-      c2.stop();
-    }
-  }
-  connection_info[idx] = '\0';
-  pf("The connection info: %s\n", connection_info);
+  aJsonObject *sd0 = aJson.createObject();
+  aJson.addStringToObject(sd0, "dataChnId", id);
   
-  int i;
-  for(i = 0; i < separater; i++){
-    ip[i] = connection_info[i];
-  }
-  ip[i] = '\0';
+  /*
+  // note: 2^32= 4 294 967 296 is smaller than 1 429 080 238 462 (unix time in milliseconds)
+  unsigned int t;
+  LDateTime.getRtc(&t); // 1429080238462,  3468826296
+  t *= 1000;
+  aJson.addNumberToObject(sd0, "timestamp", (double) t);*/
   
-  int j = 0;
-  for(i = separater+1; i<21 && j<5; i++){
-    port[j] = connection_info[i];
-    j++;
-  }
-  port[j] = '\0';
-  
-  pf("The TCP Socket connection socket:\n");
-  portnum = atoi(port);
-  pf("IP: %s, Port: %s, portnum: %d\n\n", ip, port, portnum);
-} //getconnectInfo
-
-//establish TCP connection with TCP Server with designate IP and Port
-void connectTCP(){
-  c.stop();
-  
-  pf("Connecting to TCP: %s %d\n", ip, portnum);
-  while(0 == c.connect(ip, portnum)){
-    pf("Reconnecting to TCP: %s %d\n", ip, portnum);
-    delay(1000);
-  }  
-  pf("send TCP connect\n");
-  c.println(tcpdata);
-  c.println();
-  pf("waiting TCP response:\n");
-} //connectTCP
-
-#define UPLOADSTATUS_PER 3
-unsigned int time_uploadStatus;
-//calling RESTful API to upload datapoint to MCS to report LED status
-void uploadStatus(){
-  Serial.println("uploadStatus calling connection");
-  LWiFiClient c2;  
-
-  while(!c2.connect(SITE_URL, SITE_PORT)){
-    pf("uploadStatus: reconnecting to the website");
-    delay(1000);
-  }
-  delay(100);
-
-  HttpClient http(c2);
-  c2.print("POST /mcs/v2/devices/");
-  c2.print(DEVICEID);  
-  c2.println("/datapoints.csv HTTP/1.1");
-  c2.print("Host: ");
-  c2.println(SITE_URL);
-  c2.print("deviceKey: ");
-  c2.println(DEVICEKEY);
-  
-  String led_status_data(LED_ID);
-  if(digitalRead(LED_PIN) == 1){
-    led_status_data += ",,1";
-    pf("upload LED status ON\n");
+  aJsonObject *values = aJson.createObject();
+  if(is_str){
+    aJson.addStringToObject(values, "value", String(v).c_str());
   }
   else{
-    led_status_data += ",,0";
-    pf("upload LED status OFF\n");
-  }
-
-  c2.print("Content-Length: ");
-  c2.println(led_status_data.length());
-  c2.println("Content-Type: text/csv");
-  c2.println("Connection: close");
-  c2.println();
-  c2.println(led_status_data);
-  delay(500);
-
-  int errorcount = 0;
-  while(!c2.available()){
-    pf("uploadStatus: waiting HTTP response, errorcount: %d\n", errorcount);
-    errorcount += 1;
-    if(errorcount > 10){
-      c2.stop();
-      return;
-    }
-    delay(100);
+    aJson.addNumberToObject(values, "value", v);
   }
   
-  int err = http.skipResponseHeaders();
-  pf("uploadStatus: Content length is: %d\n\n", http.contentLength());
-
-  while(c2){
-    int v = c2.read();
-    if(v != -1){
-      Serial.print(char(v));
-    }
-    else{
-      pf("no more content, disconnect");
-      c2.stop();
-    }
-  }
-  pf("\n");
-} // uploadStatus
-
-#define HEARTBEAT_PER 50
-unsigned int time_heartBeat;
-void heartBeat(){
-  Serial.println("send TCP heartBeat");
-  c.println(tcpdata);
-  c.println();
-} //heartBeat
-
-void per(unsigned int duration, unsigned int *time_old, void(*func)()){
-  unsigned int t;
-  LDateTime.getRtc(&t);
+  aJson.addItemToObject(sd0, "values", values);
   
-  if((t - *time_old) >= duration){
-    *time_old = t;
-    func();
+  aJsonObject *dps = aJson.createArray();
+  aJson.addItemToArray(dps, sd0);
+  
+  aJsonObject *root = aJson.createObject();
+  aJson.addItemToObject(root, "datapoints", dps);
+  
+  char *data = aJson.print(root);
+  const int dataLength = strlen(data);
+  pf("---len=%d---\n%s\n", dataLength, data);
+  
+  String req = String("/mcs/v2/devices/") + DEVICEID + "/datapoints";
+  err = hcli.startRequest(MCS_SITE_URL, MCS_SITE_PORT, req.c_str(), HTTP_METHOD_POST, NULL);
+  hcli.sendHeader("Content-Type", "application/json");
+  hcli.sendHeader("deviceKey", DEVICEKEY);
+  hcli.sendHeader(HTTP_HEADER_CONTENT_LENGTH, dataLength);
+  hcli.write((uint8_t *) data, dataLength);
+  hcli.finishRequest();
+  
+  free(data);
+  aJson.deleteItem(root);
+  
+  int rscode = hcli.responseStatusCode();
+  if(err == HTTP_SUCCESS && rscode > 0){ // successful
+    pf("http client req succeed, rscode: %d\n", rscode);
+    
+    while(!hcli.endOfHeadersReached()){
+      char c = hcli.readHeader();
+      Serial.print(c);
+    }
+    Serial.println("");
+    //hcli.skipResponseHeaders();
+    int bodyLen = hcli.contentLength();
+    
+    
+    char *info = (char *) malloc((bodyLen+1) * sizeof(char));
+    hcli.read((uint8_t *) info, bodyLen);
+    info[bodyLen] = '\0';
+    pf("response body len: %d\n%s\n", bodyLen, info);
+    free(info);
   }
+  return flag;
 }
 
-void loop(){
-  String tcpcmd = "";
-  while(c.available()){ //Check for TCP socket command from MCS Server 
-      int v = c.read();
-      if(v != -1){
-        Serial.print((char)v);
-        tcpcmd += (char)v;
-        if(tcpcmd.substring(52).equals("1")){
-          digitalWrite(LED_PIN, HIGH);
-          pf("\nLED status set to ON\n");
-          tcpcmd = "";
-        }
-        else if(tcpcmd.substring(52).equals("0")){  
-          digitalWrite(LED_PIN, LOW);
-          pf("\nLED status set to OFF\n");
-          tcpcmd = "";
-        }
-      }
+boolean dp_read(const char *id){
+  pf("dp_read, id %s\n", id);
+  
+  LWiFiClient cli;  
+  HttpClient hcli(cli);
+  int err = 0;
+  boolean flag = false;
+  
+  // String req = String("/mcs/v2/devices/") + DEVICEID + "/datachannels/" + id + "/datapoints?start=1429081300731&end=1429084300731&limit=5";
+  String req = String("/mcs/v2/devices/") + DEVICEID + "/datachannels/" + id + "/datapoints";
+  err = hcli.startRequest(MCS_SITE_URL, MCS_SITE_PORT, req.c_str(), HTTP_METHOD_GET, NULL);
+  hcli.sendHeader("Content-Type", "application/json");
+  hcli.sendHeader("deviceKey", DEVICEKEY);
+  hcli.finishRequest();
+  
+  int rscode = hcli.responseStatusCode();
+  if(err == HTTP_SUCCESS && rscode > 0){ // successful
+    pf("http client req succeed, rscode: %d\n", rscode);
+    
+    while(!hcli.endOfHeadersReached()){
+      char c = hcli.readHeader();
+      Serial.print(c);
+    }
+    Serial.println("");
+    //hcli.skipResponseHeaders();
+    int bodyLen = hcli.contentLength();
+    
+    char *info = (char *) malloc((bodyLen+1) * sizeof(char));
+    hcli.read((uint8_t *) info, bodyLen);
+    info[bodyLen] = '\0';
+    pf("response body len: %d\n", bodyLen);
+    Serial.println(info);
+    free(info);
+  }
+  return flag;
+}
+
+// void per(unsigned int duration, unsigned int *time_old, void(*func)()){
+  // unsigned int t;
+  // LDateTime.getRtc(&t);
+  
+  // if((t - *time_old) >= duration){
+    // *time_old = t;
+    // func();
+  // }
+// }
+
+boolean makeConnection(const char *ip, int port){
+  g_client.stop();
+  
+  pf("makeConnection ip %s, port %d ...", ip, port);
+  if(g_client.connect(ip, port)){
+    Serial.println("succeed");
+    return true;
+  }
+  else{
+    Serial.println("failed");
+  }
+  return false;
+}
+
+#define HEARTBEAT_PERIOD 100
+void heartBeat(Client &cli){
+  Serial.println("send TCP heartBeat");
+  
+  String hearbeat_data = String(DEVICEID) + "," + String(DEVICEKEY) + ",0";
+  cli.println(hearbeat_data);
+  cli.println();
+}
+
+boolean getIpPort(){
+  pf("in getIpPort...\n");
+  LWiFiClient cli;
+  HttpClient hcli(cli);
+  int err = 0;
+  boolean flag = false;
+  
+  String req = String("/mcs/v2/devices/") + DEVICEID + "/connections";
+  err = hcli.startRequest(MCS_SITE_URL, MCS_SITE_PORT, req.c_str(), HTTP_METHOD_GET, NULL);
+  hcli.sendHeader("Content-Type", "application/json");
+  hcli.sendHeader("deviceKey", DEVICEKEY);
+  hcli.finishRequest();
+  
+  int rscode = hcli.responseStatusCode();
+  if(err == HTTP_SUCCESS && rscode > 0){ // successful
+    pf("http client req succeed, rscode: %d\n", rscode);
+    
+    hcli.skipResponseHeaders();
+    int bodyLen = hcli.contentLength();
+    pf("response body len: %d\n", bodyLen);
+    
+    char *info = (char *) malloc((bodyLen+1) * sizeof(char));
+    hcli.read((uint8_t *) info, bodyLen);
+    info[bodyLen] = '\0';
+    
+    pf("---content---\n%s\n", info);
+    
+    aJsonObject *jsonobj = aJson.parse(info);
+    pf("root type %d\n", jsonobj->type);
+    aJsonObject *ipj = aJson.getObjectItem(jsonobj, "ip");
+    aJsonObject *portj = aJson.getObjectItem(jsonobj, "port");
+    pf("ip %s, type %d, port %s, type %d\n", ipj->valuestring, ipj->type, portj->valuestring, portj->type);
+    
+    strncpy(g_ip, ipj->valuestring, 20);
+    g_port = atoi(portj->valuestring);
+    pf("ip is %s, port is %d\n", g_ip, g_port);
+    
+    aJson.deleteItem(jsonobj);
+    
+    free(info);
+    
+    flag = true;
+  }
+  else{
+    pf("http client req failed, err: %d, rscode: %d\n", err, rscode);
   }
   
-  per(UPLOADSTATUS_PER, &time_uploadStatus, uploadStatus);
-  per(HEARTBEAT_PER, &time_heartBeat, heartBeat);
+  hcli.stop();
+  return flag;
+} 
+
+void loop(){
+  if(Serial.available()){
+    char d = Serial.read();
+    switch(d){
+      case 'b':{
+        Serial.println("Turn on WiFi module");
+        LWiFi.begin();
+      }
+      break;
+      case 'e':{
+        Serial.println("Turn off WiFi module");
+        LWiFi.end();
+      }
+      break;
+      case 'c':{
+        Serial.print("Connecting WiFi AP...");
+        if(LWiFi.connect(WIFI_AP, LWiFiLoginInfo(WIFI_AUTH, WIFI_PASSWORD)) > 0){
+          Serial.println(" succeed");
+        }
+        else{
+          Serial.println(" failed");
+        }
+      }
+      break;
+      case 'd':{
+        LWiFi.disconnect();
+        Serial.println("Disconnected from WiFi AP");
+      }
+      break;
+      case 'q':
+        Serial.println("Trying to get server's ip and port...");
+        if(getIpPort()){
+          pf("    succeed. ip %s, port %d\n", g_ip, g_port);
+        }
+        else{
+          pf("    failed.\n");
+        }
+      break;
+      case 'm':
+        if(getIpPort()){
+          pf("makeconnection %d\n", makeConnection(g_ip, g_port));
+          heartBeat(g_client);
+        }
+      break;
+      case 'h':
+        heartBeat(g_client);
+      break;
+      case 'u':
+        led_upload(LED_ID, digitalRead(LED_PIN), false);
+      break;
+      case 'a':
+        led_upload(AGE_ID, 300, true);
+      break;
+      case '2':
+        dp_read(LED_CONTROL_ID);
+      break;
+      case '3':
+        dp_read(AGE_ID);
+      break;
+      case '4':
+        dp_read(AGE_ID);
+      break;
+    }
+  }
+
+  if(g_client.available()){
+    int guessLen = 4 + strlen(DEVICEID) + strlen(DEVICEKEY) + 13 + 100;
+    char *data = (char *) malloc(guessLen * sizeof(char));
+    // warning: is this a bug: LWiFiClient.read(buf,len) doesn't read the first byte  !!!
+    data[0] = g_client.read();
+    int realLen = 1 + g_client.read((uint8_t *)(data+1), guessLen-1);
+    data[realLen] = '\0';
+    pf("response real len %d, guessLen %d\n", realLen, guessLen);
+    pf("%s\n", data);
+    
+    if(strstr(data, LED_CONTROL_ID) != NULL){
+      digitalWrite(LED_PIN, data[realLen-1] == '1' ? HIGH : LOW);
+    }
+    else if(strstr(data, AGE_ID) != NULL){
+      const char *sub = strrchr(data, ',');
+      pf("age is %s\n", sub+1);
+    }
+    else if(strstr(data, TEMP_ID) != NULL){
+      const char *sub = strrchr(data, ',');
+      pf("temp is %s\n", sub+1);
+    }
+    free(data);
+  }
+
+  // per(UPLOADSTATUS_PER, &time_uploadStatus, uploadStatus);
+  // per(HEARTBEAT_PER, &time_heartBeat, heartBeat);
 }

@@ -1,5 +1,5 @@
 #include <LBattery.h>
-#define BAUDRATE 19200
+#define BAUDRATE 115200
 
 void setup(){
   Serial.begin(BAUDRATE);
@@ -12,5 +12,4 @@ void loop(){
   Serial.println(LBattery.isCharging() ? "yes" : "no");
   delay(5000);
 }
-
 

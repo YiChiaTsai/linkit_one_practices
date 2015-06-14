@@ -4,8 +4,8 @@
 
 #define BAUDRATE 115200
 
-#define WIFI_AP "__WiFi_AP_NAME__"
-#define WIFI_PASSWD __WiFi_PASSWORD__"
+#define WIFI_AP "N10U"
+#define WIFI_PASSWD "yn0933!@"
 
 // IPAddress timeServer(129, 6, 15, 28); // time.nist.gov NTP server
 #define NTP_SERVER "time.stdtime.gov.tw" // (118, 163, 81, 61)

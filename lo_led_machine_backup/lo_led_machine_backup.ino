@@ -5,13 +5,13 @@
 //#include <b64.h>
 #include <LDateTime.h>
 
-#define WIFI_AP "__SSID__"
-#define WIFI_PASSWORD "__PASSWORD__"
+#define WIFI_AP "N10U"
+#define WIFI_PASSWORD "yn0933!@"
 #define WIFI_AUTH LWIFI_WPA // LWIFI_OPEN, LWIFI_WPA, LWIFI_WEP
 #define per 50
 #define per1 3
-#define DEVICEID "__DeviceId__" // 
-#define DEVICEKEY "__DeviceKey__" // 
+#define DEVICEID "DvapQx4H" // 
+#define DEVICEKEY "cA6hNMBBEu6N5ehS" // 
 #define SITE_URL "api.mediatek.com"
 
 #define LED_PIN 13
